@@ -1,0 +1,23 @@
+# Known-good Hermes Feishu streaming + runtime-footer snippet
+# Also handles Telegram runtime_footer config (see second block)
+
+streaming:
+  enabled: true
+  transport: edit
+
+display:
+  platforms:
+    feishu:
+      show_reasoning: false
+      streaming: true
+      runtime_footer:
+        enabled: true
+        separator: ' | '
+        fields:
+          - model
+          - session
+          - thinking
+          - context
+          - tokens
+          - time
+          - cwd

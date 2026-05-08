@@ -1,0 +1,19 @@
+# Known-good Hermes Telegram runtime-footer snippet
+# Note: prefix is a visual divider rendered above the fields
+
+display:
+  platforms:
+    telegram:
+      streaming: true
+      runtime_footer:
+        enabled: true
+        separator: ' | '
+        prefix: '────────'
+        fields:
+          - model
+          - session
+          - thinking
+          - context
+          - tokens
+          - time
+          - cwd
