@@ -309,6 +309,10 @@ Or use the `/footer off` slash command (affects global, not per-platform).
 
 ---
 
+# References
+
+- `references/diagnose-missing-footer.md` — 当用户报告 footer 消失时的系统诊断流程。检查配置解析、API 429 错误、streaming 与非 streaming 代码路径、`/footer` toggle 状态。
+
 # Common pitfalls
 
 - **Do not only set `display.streaming`** — gateway streaming uses the top-level `streaming` block, not `display.streaming` (which is CLI-only).
