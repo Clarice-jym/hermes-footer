@@ -38,7 +38,7 @@ prefix = footer.get("prefix", "")
 check("config exists", config_path.exists(), str(config_path))
 check("Telegram runtime_footer.enabled", footer.get("enabled") is True)
 check("Telegram has prefix", bool(prefix), f"prefix={repr(prefix)}")
-for field in ["model", "session", "thinking", "context", "tokens", "time"]:
+for field in ["model", "session", "thinking", "context", "tokens", "usage"]:
     check(f"footer includes {field}", field in fields, f"fields={fields}")
 
 # Source check: build_footer_line and resolve_footer_config must support prefix

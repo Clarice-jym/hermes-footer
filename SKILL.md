@@ -72,6 +72,7 @@ Field semantics (shared):
 | `thinking` | Reasoning effort: `medium` / `off` |
 | `context` | Context window usage: `42k / 200k (21%)` |
 | `tokens` | Session cumulative: `in 1.2k out 567` |
+| `usage` | API account usage: `5h 58% left ⏱4h 4m · Week 5% left ⏱1d 15h` |
 | `time` | Wall-clock turn time: `12.3s` / `1m 5s` |
 | `cwd` | Working dir with $HOME collapsed to `~` |
 
@@ -99,14 +100,13 @@ feishu['streaming'] = True
 feishu['runtime_footer'] = {
     'enabled': True,
     'separator': ' | ',
-    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'time', 'cwd'],
+    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'usage'],
 }
 
 p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
 print(p)
 PY
 hermes gateway restart
-```
 
 After restart, send a Feishu message and verify: (a) response updates in-place (streaming), (b) footer appears at the bottom of the same card as a `<note>` element.
 
@@ -212,7 +212,7 @@ When enabled, the Telegram message looks like:
 [正文回复内容…]
 
 ────────
-Model: gpt-5.4 | Session: abc12345 | Thinking: medium | Context: 42k / 200k (21%) | Tokens: in 1.2k out 567 | Time: 12.3s | CWD: ~/projects/hermes
+Model: gpt-5.4 | Session: abc12345 | Thinking: medium | Context: 42k / 200k (21%) | Tokens: in 1.2k out 567 | Usage: 5h 58% left ⏱4h 4m · Week 5% left ⏱1d 15h
 ```
 
 The `prefix` is rendered as a separate line before the footer fields. The footer is appended by the gateway post-processing, not by the LLM — see the token disclaimer at the top of this skill.
@@ -233,14 +233,13 @@ telegram['runtime_footer'] = {
     'enabled': True,
     'separator': ' | ',
     'prefix': '────────',
-    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'time', 'cwd'],
+    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'usage'],
 }
 
 p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
 print(p)
 PY
 hermes gateway restart
-```
 
 ## Verify Telegram footer
 
@@ -253,6 +252,39 @@ If no footer shows, check:
 1. The Telegram platform override is correct: `display.platforms.telegram.runtime_footer.enabled: true`
 2. The global `display.runtime_footer.enabled` is NOT overriding it to `false`
 3. Toggle with `/footer on` command to confirm runtime toggle works
+
+## Telegram layout semantics — why the footer may not look “attached”
+
+If the user asks why the footer is **not directly glued to the last line of the reply body**, inspect both config and gateway code before assuming Telegram rendering is at fault.
+
+Current Hermes behavior:
+
+- `gateway/run.py` appends the footer with **two newlines**: `response + "\n\n" + footer_line`
+- `gateway/runtime_footer.py` renders `prefix` (for example `────────`) on its **own line** above the footer fields
+- therefore the normal Telegram layout is intentionally:
+
+```text
+[body]
+
+────────
+Model: ... | Session: ...
+```
+
+So even when the footer is in the **same Telegram message**, it is still separated from the body by a blank line plus the divider line.
+
+Streaming nuance:
+- for streamed replies, Hermes first sends the body, then tries to edit the final streamed message in place via `_try_embed_stream_footer_in_place(...)`
+- if that edit fails, or if the combined body+footer would exceed Telegram's `4096` UTF-16 limit, Hermes falls back to sending the footer as a **separate tiny trailing message**
+
+Key code touchpoints for this diagnosis:
+- `gateway/run.py` — footer assembly and streamed fallback behavior
+- `gateway/runtime_footer.py` — `prefix`/separator rendering
+- `gateway/platforms/telegram.py` — edit behavior and message-length limits
+
+If the user wants a tighter look, there are three distinct options:
+1. Keep current behavior — blank line + divider + footer
+2. Keep same-message footer but make it visually tighter by changing the join from `\n\n` to `\n`
+3. Remove the divider by setting Telegram `runtime_footer.prefix` to empty string
 
 ## Repair Telegram after Hermes update
 
