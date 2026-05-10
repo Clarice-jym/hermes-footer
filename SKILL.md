@@ -24,7 +24,8 @@ Read the user's request to decide which section to follow:
 |---|---|
 | 飞书 / Feishu / Lark — 配置或用不了 / 设置 footer / streaming | **Feishu section** |
 | Telegram — 配置或用不了 / 设置 footer / 加分割线 | **Telegram section** |
-| 同时配置两个平台 | Read both sections separately |
+| Discord — 配置或用不了 / 设置 footer / 加分割线 | **Discord section** |
+| 同时配置多个平台 | Read relevant sections separately |
 
 If the request is ambiguous (e.g. just "配置 footer"), ask which platform.
 
@@ -309,6 +310,99 @@ Or use the `/footer off` slash command (affects global, not per-platform).
 
 ---
 
+# Discord Section — Plain-text footer
+
+Configure Discord to append a compact runtime-metadata footer at the end of each response, with an optional visual divider line.
+
+## Discord config shape
+
+```yaml
+display:
+  platforms:
+    discord:
+      show_reasoning: true
+      streaming: true
+      runtime_footer:
+        enabled: true
+        separator: ' | '
+        prefix: "────────"
+        fields:
+          - model
+          - session
+          - thinking
+          - context
+          - tokens
+          - usage
+```
+
+Key characteristics shared with Telegram:
+- **`prefix: "────────"`** — a plain-text divider line before the footer fields. Set to empty string to disable.
+- **`show_reasoning`** defaults to `true` (user preference — unlike Feishu which sets it to `false`).
+- Footer works with or without streaming.
+
+## Discord footer behavior
+
+Unlike Feishu (card-based in-place edit) and Telegram (edit-message-in-place), Discord's footer delivery depends on the response mode:
+
+- **Non-streaming mode**: The footer is joined to the response body with `\n\n` and sent as part of the same message.
+- **Streaming mode**: `_try_embed_stream_footer_in_place` (in `gateway/run.py`) currently only supports `Platform.FEISHU` and `Platform.TELEGRAM`. For Discord, the embedding check returns `False`, so the gateway falls back to sending the footer as a **separate trailing message** after the streamed body completes.
+
+This means in streaming mode the Discord output looks like:
+
+```
+[主播回复内容...]
+
+────────
+Model: deepseek-v4-pro | Session: abc12345 | Thinking: high | ...
+```
+
+## Apply Discord config
+
+```bash
+python - <<'PY'
+from pathlib import Path
+import yaml
+
+p = Path.home() / '.hermes' / 'config.yaml'
+cfg = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+
+discord = cfg.setdefault('display', {}).setdefault('platforms', {}).setdefault('discord', {})
+discord['show_reasoning'] = True
+discord['streaming'] = True
+discord['runtime_footer'] = {
+    'enabled': True,
+    'separator': ' | ',
+    'prefix': '────────',
+    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'usage'],
+}
+
+p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
+print(p)
+PY
+hermes gateway restart
+```
+
+## Verify Discord footer
+
+After restart, send a message to Hermes on Discord and check:
+- The response ends with the footer (non-streaming) or receives a separate footer message (streaming)
+- The `────────` separator appears above the fields
+- No footer appears on platforms that don't have it enabled
+
+If no footer shows:
+1. Confirm `display.platforms.discord.runtime_footer.enabled: true`
+2. The global `display.runtime_footer.enabled` is NOT overriding it to `false`
+3. Restart the gateway: `hermes gateway restart` (config changes require restart)
+
+## Switching off the Discord footer
+
+```bash
+hermes config set display.platforms.discord.runtime_footer.enabled false
+hermes gateway restart
+```
+
+---
+
 # References
 
 - `references/diagnose-missing-footer.md` — 当用户报告 footer 消失时的系统诊断流程。检查配置解析、API 429 错误、streaming 与非 streaming 代码路径、`/footer` toggle 状态。
@@ -319,4 +413,5 @@ Or use the `/footer off` slash command (affects global, not per-platform).
 - **Do not assume platforms inherit each other's config** — each platform needs its own `display.platforms.<name>.runtime_footer` block.
 - **Always restart the gateway** after config or code changes. Toggle via `hermes gateway restart`.
 - **The `/footer` slash command** toggles `display.runtime_footer.enabled` globally; per-platform overrides still apply individually.
-- **Telegram prefix** is a config-level string, not a code change. Adjust `prefix` in YAML to change the divider.
+- **Telegram / Discord prefix** is a config-level string, not a code change. Adjust `prefix` in YAML to change the divider.
+- **Discord streaming footer** is sent as a separate trailing message; this is by design because `_try_embed_stream_footer_in_place` in `gateway/run.py` only handles Feishu and Telegram. To change this behavior, add `Platform.DISCORD` to the guard condition in `gateway/run.py` (line ~10322).

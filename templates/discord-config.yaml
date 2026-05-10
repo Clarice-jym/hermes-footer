@@ -1,0 +1,19 @@
+# Discord runtime_footer config snippet
+# Merge into display.platforms.discord in ~/.hermes/config.yaml
+
+display:
+  platforms:
+    discord:
+      show_reasoning: true
+      streaming: true
+      runtime_footer:
+        enabled: true
+        separator: ' | '
+        prefix: "────────"
+        fields:
+          - model
+          - session
+          - thinking
+          - context
+          - tokens
+          - usage
