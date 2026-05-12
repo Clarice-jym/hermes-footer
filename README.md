@@ -1,12 +1,11 @@
 # hermes-footer
 
-A Hermes Agent skill for configuring **runtime footer** on **Feishu (Lark)**, **Telegram**, and **Discord** channels.
+A Hermes Agent skill for configuring **runtime footer** on **Feishu (Lark)** and **Telegram** channels.
 
 ## Features
 
 - **Feishu** — Footer embedded as a `<note>` element inside the interactive card, enabled through gateway streaming
 - **Telegram** — Footer appended as plain text with an optional visual divider (`────────`)
-- **Discord** — Footer appended as plain text with visual divider; in streaming mode sent as a separate trailing message
 - **Dispatch mechanism** — The SKILL.md dispatch table routes the agent to the correct channel section, preventing unnecessary context
 - **Zero token cost** — Footer is added by the gateway after the model finishes; never enters the LLM context window
 
@@ -14,17 +13,14 @@ A Hermes Agent skill for configuring **runtime footer** on **Feishu (Lark)**, **
 
 ```
 hermes-footer/
-├── SKILL.md                         # Main skill — dispatch + Feishu + Telegram + Discord sections
+├── SKILL.md                         # Main skill — dispatch + Feishu section + Telegram section
 ├── README.md
 ├── templates/
 │   ├── feishu-config.yaml           # Feishu config snippet
-│   ├── telegram-config.yaml         # Telegram config snippet (with prefix divider)
-│   └── discord-config.yaml          # Discord config snippet (with prefix divider)
-├── scripts/
-│   ├── check_footer_feishu.py       # Diagnose Feishu footer config & source support
-│   └── check_footer_telegram.py     # Diagnose Telegram footer config & source support
-└── references/
-    └── diagnose-missing-footer.md   # Systematic footer diagnosis workflow
+│   └── telegram-config.yaml         # Telegram config snippet (with prefix divider)
+└── scripts/
+    ├── check_footer_feishu.py       # Diagnose Feishu footer config & source support
+    └── check_footer_telegram.py     # Diagnose Telegram footer config & source support
 ```
 
 ## Usage

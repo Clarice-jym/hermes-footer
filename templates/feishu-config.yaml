@@ -1,5 +1,11 @@
-# Known-good Hermes Feishu streaming + runtime-footer snippet
-# Also handles Telegram runtime_footer config (see second block)
+# Feishu/Lark streaming + runtime-footer config
+#
+# VERSION NOTE (May 2026): The new simplified footer code only supports
+# `model`, `context_pct`, and `cwd`. Fields like session/thinking/tokens/usage
+# are silently ignored. Separator and prefix are also ignored.
+#
+# Use this template with the NEW system by stripping unsupported fields.
+# For the OLD rich system (pre-rewrite), see the commented block below.
 
 streaming:
   enabled: true
@@ -12,12 +18,33 @@ display:
       streaming: true
       runtime_footer:
         enabled: true
-        separator: ' | '
+        # separator: ' | '          # ignored by new code
         fields:
           - model
-          - session
-          - thinking
-          - context
-          - tokens
-          - time
-          - cwd
+          - context_pct
+          # - session              # unsupported in new code
+          # - thinking             # unsupported in new code
+          # - tokens               # unsupported in new code
+          # - time                 # unsupported in new code
+          # - cwd                  # supported but optional
+
+# ---- OLD SYSTEM (pre-May 2026 rewrite) ----
+# streaming:
+#   enabled: true
+#   transport: edit
+# display:
+#   platforms:
+#     feishu:
+#       show_reasoning: false
+#       streaming: true
+#       runtime_footer:
+#         enabled: true
+#         separator: ' | '
+#         fields:
+#           - model
+#           - session
+#           - thinking
+#           - context
+#           - tokens
+#           - time
+#           - cwd

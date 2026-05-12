@@ -1,12 +1,12 @@
 ---
 name: hermes-footer
-description: "Configure Hermes runtime footer — Feishu (in-card interactive note) and/or Telegram (plain-text with divider). Dispatch by channel."
-version: 1.0.0
+description: "Configure Hermes runtime footer — detect version, fix missing footers, migrate config, or restore rich fields."
+version: 2.0.0
 author: Hermes Agent
 license: MIT
 metadata:
   hermes:
-    tags: [hermes, feishu, telegram, gateway, streaming, runtime-footer, config]
+    tags: [hermes, feishu, telegram, discord, gateway, streaming, runtime-footer, config]
     related_skills: [hermes-agent]
 ---
 
@@ -14,404 +14,185 @@ metadata:
 
 Use this skill when the user wants to **configure, verify, or repair** Hermes's runtime footer on a messaging platform.
 
-This skill covers **two channels** in separate sections. **Only load the section that matches your target channel** — do not read both unless the user explicitly asked for both.
+The footer system has **two possible versions** depending on whether `hermes update` pulled the simplified rewrite:
+
+| Aspect | Old system (pre-May 2026) | New system (post-rewrite) |
+|--------|--------------------------|---------------------------|
+| Supported fields | `model`, `session`, `thinking`, `context`, `tokens`, `usage`, `time`, `cwd`, `cost` (custom) | `model`, `context_pct`, `cwd` only |
+| Custom separator | Read from `config.yaml` `separator` key | Hardcoded ` · ` (middle dot) |
+| Prefix/divider | `prefix` key in config (e.g. `────────`) | Not supported |
+| Custom fields | Code pattern in `runtime_footer.py` | Not supported without code extension |
+| Per-platform config | Full per-platform with separator/prefix/field list | Same config shape, but `separator`/`prefix` ignored, unknown fields silently dropped |
+
+> **IMPORTANT**: Unknown field names in `fields` are **silently ignored** by the new `format_runtime_footer()`. If footers disappeared after an update, the config still looks correct but references fields that no longer exist in code.
+
+## First step: detect which version
+
+```bash
+cd ~/.hermes/hermes-agent
+head -30 gateway/runtime_footer.py
+```
+
+If you see `_DEFAULT_FIELDS = ("model", "context_pct", "cwd")` and a simple `format_runtime_footer()` with only 3 field branches → **new system**.
+If you see `_RUNTIME_FOOTER_LABELS` dict with many entries → **old system**.
 
 ## Dispatch guide
 
-Read the user's request to decide which section to follow:
+Once you know the version, decide the approach:
 
-| If the user says… | Go to section |
-|---|---|
-| 飞书 / Feishu / Lark — 配置或用不了 / 设置 footer / streaming | **Feishu section** |
-| Telegram — 配置或用不了 / 设置 footer / 加分割线 | **Telegram section** |
-| Discord — 配置或用不了 / 设置 footer / 加分割线 | **Discord section** |
-| 同时配置多个平台 | Read relevant sections separately |
-
-If the request is ambiguous (e.g. just "配置 footer"), ask which platform.
-
-> **IMPORTANT disclaimer about token cost:** Hermes runtime footer is added by the gateway **after** the model finishes generating, using raw runtime metadata (model name, session, elapsed time, etc.). The footer text **never enters the LLM context window** — it is not part of the conversation history fed to the model on subsequent turns. Zero token waste.
-
-> **Always load `hermes-agent` skill first** when making config changes, because Hermes config/CLI/gateway details evolve.
+| User request | Old system | New system |
+|---|---|---|
+| "Footer disappeared after update" | Check config & restart | Config references now-gone fields → see **Migration** below |
+| "Add/remove a field" | Edit config → restart | Only `model`, `context_pct`, `cwd` available |
+| "Add custom field like `cost`" | Follow code pattern in references | Must **extend code** (see **Restoring rich footer** below) |
+| "Change separator/prefix" | Edit config → restart | Not supported in new system |
 
 ---
 
-# Feishu Section — Interactive card footer
+# Migration: New system — making footers visible again
 
-Configure Feishu/Lark gateway to stream replies by progressively editing the same interactive card, with runtime metadata embedded as a bottom `<note>` element in the card.
+## Problem
 
-## Feishu config shape
-
+After `hermes update`, the user's config still has:
 ```yaml
-streaming:
+runtime_footer:
   enabled: true
-  transport: edit          # optional; default edit is fine
-
-display:
-  platforms:
-    feishu:
-      show_reasoning: false
-      streaming: true
-      runtime_footer:
-        enabled: true
-        separator: ' | '
-        fields:
-          - model
-          - session
-          - thinking
-          - context
-          - tokens
-          - time
-          - cwd
+  fields: [model, session, thinking, context, tokens, usage]
 ```
 
-Field semantics (shared):
+But the new code only supports `model`, `context_pct`, `cwd`. Fields like `session`, `thinking`, `tokens`, `usage` are silently ignored. Result: only `model` prints, or if that's also misconfigured — empty footer.
 
-| Field | Example |
-|-------|---------|
-| `model` | `gpt-5.4` (vendor prefix stripped) |
-| `session` | Session title, or first 8 chars of ID |
-| `thinking` | Reasoning effort: `medium` / `off` |
-| `context` | Context window usage: `42k / 200k (21%)` |
-| `tokens` | Session cumulative: `in 1.2k out 567` |
-| `usage` | API account usage: `5h 58% left ⏱4h 4m · Week 5% left ⏱1d 15h` |
-| `time` | Wall-clock turn time: `12.3s` / `1m 5s` |
-| `cwd` | Working dir with $HOME collapsed to `~` |
+## Option A: Adapt to new system (minimal, no code changes)
 
-The user prefers **NOT** to show `Agent` field on Feishu.
-
-## Apply Feishu config
-
-Use a Python script to maintain correct YAML list formatting:
+Update each platform's config to use only supported fields:
 
 ```bash
-python - <<'PY'
+python3 - <<'PY'
 from pathlib import Path
 import yaml
 
 p = Path.home() / '.hermes' / 'config.yaml'
 cfg = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
 
-streaming = cfg.setdefault('streaming', {})
-streaming['enabled'] = True
-streaming.setdefault('transport', 'edit')
+new_fields = ['model', 'context_pct']  # cwd optional
 
-feishu = cfg.setdefault('display', {}).setdefault('platforms', {}).setdefault('feishu', {})
-feishu['show_reasoning'] = False
-feishu['streaming'] = True
-feishu['runtime_footer'] = {
-    'enabled': True,
-    'separator': ' | ',
-    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'usage'],
-}
+for plat in ['feishu', 'telegram', 'discord']:
+    plat_cfg = cfg.get('display', {}).get('platforms', {}).get(plat, {})
+    if 'runtime_footer' in plat_cfg:
+        plat_cfg['runtime_footer']['fields'] = new_fields
+        # separator and prefix are now ignored by new code; keep or remove
+        plat_cfg['runtime_footer'].pop('separator', None)
+        plat_cfg['runtime_footer'].pop('prefix', None)
 
 p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
-print(p)
+print("Updated:", p)
 PY
 hermes gateway restart
-
-After restart, send a Feishu message and verify: (a) response updates in-place (streaming), (b) footer appears at the bottom of the same card as a `<note>` element.
-
-## Verify Feishu source support
-
-Config alone is not enough — the installed Hermes source must support Feishu interactive-card footers.
-
-```bash
-cd ~/.hermes/hermes-agent
-grep -R "split_runtime_footer" -n gateway/runtime_footer.py gateway/platforms/feishu.py
-grep -R "_build_interactive_card_payload\|feishu_card\|_try_embed_stream_footer_in_place" -n gateway/platforms/feishu.py gateway/run.py gateway/stream_consumer.py
 ```
 
-Expected source touchpoints:
+Verify: send a message on each platform. Footer should show something like `gpt-5.4 · 12%`.
 
-1. **`gateway/runtime_footer.py`** — `split_runtime_footer(text) -> (body, footer)` to separate card body from footer text.
-2. **`gateway/platforms/feishu.py`** — imports `split_runtime_footer`, renders card body as `markdown` element and footer as bottom `note` element; both `send()` and `edit_message()` pass metadata.
-3. **`gateway/run.py`** — builds footer line; when streaming already sent body, calls `_try_embed_stream_footer_in_place` to embed footer into existing card.
-4. **`gateway/stream_consumer.py`** — passes adapter metadata through final edit path.
+## Option B: Restore rich footer (extend code)
 
-Run tests if available:
+This re-adds the old field support and custom separator/prefix to the new simplified codebase.
 
-```bash
-cd ~/.hermes/hermes-agent
-python -m pytest -q tests/gateway/test_runtime_footer.py tests/gateway/test_feishu.py tests/gateway/test_update_streaming.py
-```
+### Files to modify
 
-## Repair Feishu after Hermes update
+| File | Change |
+|------|--------|
+| `gateway/runtime_footer.py` | Add `session`, `thinking`, `tokens`, `usage`, `time` field branches; restore configurable `_SEP` and prefix support |
+| `gateway/run.py` | Pass `session_id`, `input_tokens`, `output_tokens`, `elapsed_seconds`, `reasoning_config`, `account_usage` to `build_footer_line()` |
 
-If `hermes update`, git pull, or plugin refactor removes footer behavior:
+The `agent_result` dict (available in `_respond_final` around `gateway/run.py` L7635) contains:
+- `model`, `session_id`, `last_prompt_tokens`, `context_length`
+- `input_tokens`, `output_tokens` (session cumulative)
+- `estimated_cost_usd`, `cost_status` (for custom `cost` field)
+- `reasoning_effort` (from session config)
+- `account_usage` (from usage tracking)
 
-1. Check what changed:
-   ```bash
-   cd ~/.hermes/hermes-agent
-   git status --short
-   git diff -- gateway/platforms/feishu.py gateway/runtime_footer.py gateway/run.py gateway/stream_consumer.py
-   ```
+### Reference file for restoration
 
-2. Re-apply config (see **Apply Feishu config** above).
-
-3. If config is correct but Feishu sends a separate footer message or no footer, repair the source touchpoints listed in **Verify Feishu source support**.
-
-4. Restart gateway:
-   ```bash
-   hermes gateway restart
-   # or if wedged:
-   systemctl --user restart hermes-gateway
-   ```
-
-5. Test with a real Feishu prompt and verify:
-   - streamed content edits the same card
-   - footer is embedded at the bottom of the same card as `<note>`
-   - footer does NOT include `Agent` unless requested
-   - no second trailing footer-only message appears
-
-## Feishu local caveat
-
-On this user's machine (as of 2026-05-07), Feishu footer-in-card is implemented as **local modifications** in `~/.hermes/hermes-agent` touching:
-- `gateway/platforms/feishu.py`
-- `gateway/runtime_footer.py`
-- `gateway/run.py`
-- `gateway/stream_consumer.py`
-
-A future `hermes update` or upstream refactor can overwrite these if not committed upstream.
+See `references/restore-rich-fields.md` for the full code changeset including:
+- Exact field rendering branches for `format_runtime_footer()`
+- How to wire separator and prefix from config into the new code
+- How to pass `cost_str` for the `cost` field
+- Pitfalls around the try/except that catches all footer errors
 
 ---
 
-# Telegram Section — Plain-text footer
+# Diagnostic process (version-agnostic)
 
-Configure Telegram to append a compact runtime-metadata footer at the end of each response, with an optional visual divider line.
-
-## Telegram config shape
-
-```yaml
-display:
-  platforms:
-    telegram:
-      streaming: true
-      runtime_footer:
-        enabled: true
-        separator: ' | '
-        prefix: "────────"     # 8-char horizontal rule as visual divider
-        fields:
-          - model
-          - session
-          - thinking
-          - context
-          - tokens
-          - time
-          - cwd
-```
-
-Key differences from Feishu:
-- **`prefix: "────────"`** — a plain-text divider line before the footer fields. Set to empty string to disable.
-- **No `show_reasoning: false`** — Telegram keeps `show_reasoning: true` (user preference).
-- **No `streaming` top-level requirement** — the footer works with or without streaming, but streaming is recommended.
-
-## Footer render example
-
-When enabled, the Telegram message looks like:
-
-```
-[正文回复内容…]
-
-────────
-Model: gpt-5.4 | Session: abc12345 | Thinking: medium | Context: 42k / 200k (21%) | Tokens: in 1.2k out 567 | Usage: 5h 58% left ⏱4h 4m · Week 5% left ⏱1d 15h
-```
-
-The `prefix` is rendered as a separate line before the footer fields. The footer is appended by the gateway post-processing, not by the LLM — see the token disclaimer at the top of this skill.
-
-## Apply Telegram config
+## Step 1: Verify config resolution
 
 ```bash
-python - <<'PY'
+python3 -c '
 from pathlib import Path
 import yaml
+from gateway.runtime_footer import resolve_footer_config
 
-p = Path.home() / '.hermes' / 'config.yaml'
-cfg = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
-
-telegram = cfg.setdefault('display', {}).setdefault('platforms', {}).setdefault('telegram', {})
-telegram['streaming'] = True
-telegram['runtime_footer'] = {
-    'enabled': True,
-    'separator': ' | ',
-    'prefix': '────────',
-    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'usage'],
-}
-
-p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
-print(p)
-PY
-hermes gateway restart
-
-## Verify Telegram footer
-
-After restart, send a message to Hermes on Telegram and check:
-- The response ends with the footer line
-- The `────────` separator appears above the fields
-- No footer appears on platforms that don't have it enabled
-
-If no footer shows, check:
-1. The Telegram platform override is correct: `display.platforms.telegram.runtime_footer.enabled: true`
-2. The global `display.runtime_footer.enabled` is NOT overriding it to `false`
-3. Toggle with `/footer on` command to confirm runtime toggle works
-
-## Telegram layout semantics — why the footer may not look “attached”
-
-If the user asks why the footer is **not directly glued to the last line of the reply body**, inspect both config and gateway code before assuming Telegram rendering is at fault.
-
-Current Hermes behavior:
-
-- `gateway/run.py` appends the footer with **two newlines**: `response + "\n\n" + footer_line`
-- `gateway/runtime_footer.py` renders `prefix` (for example `────────`) on its **own line** above the footer fields
-- therefore the normal Telegram layout is intentionally:
-
-```text
-[body]
-
-────────
-Model: ... | Session: ...
+cfg = yaml.safe_load(Path.home().joinpath(".hermes/config.yaml").read_text())
+for p in ["telegram", "feishu", "discord"]:
+    r = resolve_footer_config(cfg, p)
+    print(f"{p}: enabled={r[\"enabled\"]}, fields={r[\"fields\"]}")
+'
 ```
 
-So even when the footer is in the **same Telegram message**, it is still separated from the body by a blank line plus the divider line.
+If `enabled=True` with the right fields → config is fine, issue is in code.
 
-Streaming nuance:
-- for streamed replies, Hermes first sends the body, then tries to edit the final streamed message in place via `_try_embed_stream_footer_in_place(...)`
-- if that edit fails, or if the combined body+footer would exceed Telegram's `4096` UTF-16 limit, Hermes falls back to sending the footer as a **separate tiny trailing message**
-
-Key code touchpoints for this diagnosis:
-- `gateway/run.py` — footer assembly and streamed fallback behavior
-- `gateway/runtime_footer.py` — `prefix`/separator rendering
-- `gateway/platforms/telegram.py` — edit behavior and message-length limits
-
-If the user wants a tighter look, there are three distinct options:
-1. Keep current behavior — blank line + divider + footer
-2. Keep same-message footer but make it visually tighter by changing the join from `\n\n` to `\n`
-3. Remove the divider by setting Telegram `runtime_footer.prefix` to empty string
-
-## Repair Telegram after Hermes update
-
-Same process as Feishu but focus on `runtime_footer.py`:
+## Step 2: Check gateway logs for footer activity
 
 ```bash
-cd ~/.hermes/hermes-agent
-git diff -- gateway/runtime_footer.py gateway/run.py
+journalctl --user -u hermes-gateway --since "30 min ago" --no-pager | grep -i -E "footer built|runtime_footer|stream footer" | tail -20
 ```
 
-If `build_footer_line` or `resolve_footer_config` changed, re-check the config file and restart.
+No "footer built" lines → the try/except block in `_respond_final` caught an error, or the footer function returned empty.
 
-## Switching off the footer
+## Step 3: Test standalone
 
-To temporarily disable without removing config:
+```python
+from gateway.runtime_footer import build_footer_line
+from hermes_cli.config import read_raw_config
+
+cfg = read_raw_config()
+line = build_footer_line(
+    user_config=cfg,
+    platform_key="telegram",
+    model="deepseek-v4-flash",
+    context_tokens=12345,
+    context_length=200000,
+    cwd="/home/momo",
+)
+print(repr(line))
+```
+
+If this returns `""`, check whether `cfg["display"]["runtime_footer"]["enabled"]` is overriding per-platform `enabled`.
+
+## Step 4: Check `/footer` toggle
 
 ```bash
-hermes config set display.platforms.telegram.runtime_footer.enabled false
+hermes config get display.runtime_footer.enabled
 ```
 
-Or use the `/footer off` slash command (affects global, not per-platform).
+If `false`, run `/footer on` in any platform.
 
----
+## Key pitfalls
 
-# Discord Section — Plain-text footer
-
-Configure Discord to append a compact runtime-metadata footer at the end of each response, with an optional visual divider line.
-
-## Discord config shape
-
-```yaml
-display:
-  platforms:
-    discord:
-      show_reasoning: true
-      streaming: true
-      runtime_footer:
-        enabled: true
-        separator: ' | '
-        prefix: "────────"
-        fields:
-          - model
-          - session
-          - thinking
-          - context
-          - tokens
-          - usage
-```
-
-Key characteristics shared with Telegram:
-- **`prefix: "────────"`** — a plain-text divider line before the footer fields. Set to empty string to disable.
-- **`show_reasoning`** defaults to `true` (user preference — unlike Feishu which sets it to `false`).
-- Footer works with or without streaming.
-
-## Discord footer behavior
-
-Unlike Feishu (card-based in-place edit) and Telegram (edit-message-in-place), Discord's footer delivery depends on the response mode:
-
-- **Non-streaming mode**: The footer is joined to the response body with `\n\n` and sent as part of the same message.
-- **Streaming mode**: `_try_embed_stream_footer_in_place` (in `gateway/run.py`) currently only supports `Platform.FEISHU` and `Platform.TELEGRAM`. For Discord, the embedding check returns `False`, so the gateway falls back to sending the footer as a **separate trailing message** after the streamed body completes.
-
-This means in streaming mode the Discord output looks like:
-
-```
-[主播回复内容...]
-
-────────
-Model: deepseek-v4-pro | Session: abc12345 | Thinking: high | ...
-```
-
-## Apply Discord config
-
-```bash
-python - <<'PY'
-from pathlib import Path
-import yaml
-
-p = Path.home() / '.hermes' / 'config.yaml'
-cfg = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
-
-discord = cfg.setdefault('display', {}).setdefault('platforms', {}).setdefault('discord', {})
-discord['show_reasoning'] = True
-discord['streaming'] = True
-discord['runtime_footer'] = {
-    'enabled': True,
-    'separator': ' | ',
-    'prefix': '────────',
-    'fields': ['model', 'session', 'thinking', 'context', 'tokens', 'usage'],
-}
-
-p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
-print(p)
-PY
-hermes gateway restart
-```
-
-## Verify Discord footer
-
-After restart, send a message to Hermes on Discord and check:
-- The response ends with the footer (non-streaming) or receives a separate footer message (streaming)
-- The `────────` separator appears above the fields
-- No footer appears on platforms that don't have it enabled
-
-If no footer shows:
-1. Confirm `display.platforms.discord.runtime_footer.enabled: true`
-2. The global `display.runtime_footer.enabled` is NOT overriding it to `false`
-3. Restart the gateway: `hermes gateway restart` (config changes require restart)
-
-## Switching off the Discord footer
-
-```bash
-hermes config set display.platforms.discord.runtime_footer.enabled false
-hermes gateway restart
-```
+- **New code silently ignores unknown fields** — the most common cause of "footer disappeared" after update. The config looks fine, but `session`, `thinking`, `tokens`, `usage` don't exist in new code.
+- **The try/except in `_respond_final`** catches ALL exceptions and sets `_footer_line = ""`. Any error in footer building = no footer, no error message to user.
+- **Per-platform `enabled: true` overrides** global `enabled: false` — the `/footer off` command changes the global, not per-platform.
+- **Gateway restart is mandatory** after any config or code change.
 
 ---
 
 # References
 
-- `references/diagnose-missing-footer.md` — 当用户报告 footer 消失时的系统诊断流程。检查配置解析、API 429 错误、streaming 与非 streaming 代码路径、`/footer` toggle 状态。
+- `references/diagnose-missing-footer.md` — Full diagnostic flow for missing footers (version-agnostic).
+- `references/restore-rich-fields.md` — Code changeset to restore the old multi-field footer system on the new simplified codebase.
+- `references/add-custom-footer-field.md` — Legacy: how custom fields were added in old system (kept for migration reference).
 
 # Common pitfalls
 
-- **Do not only set `display.streaming`** — gateway streaming uses the top-level `streaming` block, not `display.streaming` (which is CLI-only).
-- **Do not assume platforms inherit each other's config** — each platform needs its own `display.platforms.<name>.runtime_footer` block.
-- **Always restart the gateway** after config or code changes. Toggle via `hermes gateway restart`.
+- **Do not only set `display.streaming`** — gateway streaming uses the top-level `streaming` block, not `display.streaming`.
+- **Always restart the gateway** after config or code changes: `hermes gateway restart`.
 - **The `/footer` slash command** toggles `display.runtime_footer.enabled` globally; per-platform overrides still apply individually.
-- **Telegram / Discord prefix** is a config-level string, not a code change. Adjust `prefix` in YAML to change the divider.
-- **Discord streaming footer** is sent as a separate trailing message; this is by design because `_try_embed_stream_footer_in_place` in `gateway/run.py` only handles Feishu and Telegram. To change this behavior, add `Platform.DISCORD` to the guard condition in `gateway/run.py` (line ~10322).
+- **New code unknown fields are silent** — if footers vanished, check the field names against what `format_runtime_footer()` actually renders.

@@ -1,5 +1,11 @@
-# Known-good Hermes Telegram runtime-footer snippet
-# Note: prefix is a visual divider rendered above the fields
+# Telegram runtime_footer config
+#
+# VERSION NOTE (May 2026): The new simplified footer code only supports
+# `model`, `context_pct`, and `cwd`. Fields like session/thinking/tokens/usage
+# are silently ignored. Separator and prefix are also ignored.
+# 
+# Use this template with the NEW system by stripping unsupported fields.
+# For the OLD rich system (pre-rewrite), see the commented block below.
 
 display:
   platforms:
@@ -7,13 +13,31 @@ display:
       streaming: true
       runtime_footer:
         enabled: true
-        separator: ' | '
-        prefix: '────────'
+        # separator: ' | '          # ignored by new code
+        # prefix: '────────'        # ignored by new code
         fields:
           - model
-          - session
-          - thinking
-          - context
-          - tokens
-          - time
-          - cwd
+          - context_pct
+          # - session              # unsupported in new code
+          # - thinking             # unsupported in new code
+          # - tokens               # unsupported in new code
+          # - time                 # unsupported in new code
+          # - cwd                  # supported but optional
+
+# ---- OLD SYSTEM (pre-May 2026 rewrite) ----
+# display:
+#   platforms:
+#     telegram:
+#       streaming: true
+#       runtime_footer:
+#         enabled: true
+#         separator: ' | '
+#         prefix: '────────'
+#         fields:
+#           - model
+#           - session
+#           - thinking
+#           - context
+#           - tokens
+#           - time
+#           - cwd
