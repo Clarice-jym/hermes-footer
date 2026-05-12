@@ -150,13 +150,16 @@ def _format_elapsed(seconds: float) -> str:
 
 
 def _format_relative_reset_hours(dt: Optional[datetime]) -> str:
-    """Return reset time as plain hours for the short usage footer, e.g. ``4h`` or ``128h``."""
+    """Return reset time for the short usage footer, e.g. ``4h`` or ``5d 8h``."""
     if not dt:
         return ""
     total_seconds = int((dt - datetime.now(timezone.utc)).total_seconds())
     if total_seconds <= 0:
         return "now"
     hours = max(1, round(total_seconds / 3600))
+    if hours >= 24:
+        days, rem_hours = divmod(hours, 24)
+        return f"{days}d {rem_hours}h" if rem_hours else f"{days}d"
     return f"{hours}h"
 
 
@@ -180,7 +183,7 @@ def _usage_label_short(label: Optional[str]) -> str:
 def _format_account_usage(account_usage: Any, *, separator: str = _DEFAULT_SEP) -> str:
     """Render account-usage windows in the user's short C format.
 
-    Example: ``73%/4h, Week 91%/128h``. The first short/session window omits
+    Example: ``73%/4h, Week 91%/5d 8h``. The first short/session window omits
     its label; longer-period windows keep a compact label such as ``Week``.
     ``separator`` is accepted for API compatibility but intentionally not used
     inside this field so the footer-level separator remains visually distinct.
