@@ -148,15 +148,67 @@ def _format_elapsed(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
-def _format_account_usage(usage: dict) -> str:
-    """Format API account usage dict into a short string."""
-    # Expected keys: hours_left, percent_left, period_hours_left, period_percent_left
-    parts = []
-    if "hours_left" in usage and "percent_left" in usage:
-        parts.append(f"{usage['percent_left']}% left ⏱{usage['hours_left']}h")
-    if "period_hours_left" in usage and "period_percent_left" in usage:
-        parts.append(f"· Week {usage['period_percent_left']}% left ⏱{usage['period_hours_left']}h")
-    return " ".join(parts)
+
+def _format_relative_reset_hours(dt: Optional[datetime]) -> str:
+    """Return reset time as plain hours for the short usage footer, e.g. ``4h`` or ``128h``."""
+    if not dt:
+        return ""
+    total_seconds = int((dt - datetime.now(timezone.utc)).total_seconds())
+    if total_seconds <= 0:
+        return "now"
+    hours = max(1, round(total_seconds / 3600))
+    return f"{hours}h"
+
+
+def _usage_label_short(label: Optional[str]) -> str:
+    raw = str(label or "").strip()
+    normalized = raw.casefold()
+    mapping = {
+        "session": "5h",
+        "current session": "5h",
+        "five hour": "5h",
+        "five-hour": "5h",
+        "5h": "5h",
+        "weekly": "Week",
+        "current week": "Week",
+        "week": "Week",
+        "7d": "Week",
+    }
+    return mapping.get(normalized, raw)
+
+
+def _format_account_usage(account_usage: Any, *, separator: str = _DEFAULT_SEP) -> str:
+    """Render account-usage windows in the user's short C format.
+
+    Example: ``73%/4h, Week 91%/128h``. The first short/session window omits
+    its label; longer-period windows keep a compact label such as ``Week``.
+    ``separator`` is accepted for API compatibility but intentionally not used
+    inside this field so the footer-level separator remains visually distinct.
+    """
+    if not account_usage:
+        return ""
+    windows = getattr(account_usage, "windows", None) or ()
+    parts: list[str] = []
+    for window in windows:
+        used_percent = getattr(window, "used_percent", None)
+        if used_percent is None:
+            continue
+        label = _usage_label_short(getattr(window, "label", None))
+        if not label:
+            continue
+        try:
+            remaining = max(0, round(100 - float(used_percent)))
+        except (TypeError, ValueError):
+            continue
+
+        reset_text = _format_relative_reset_hours(getattr(window, "reset_at", None))
+        quota = f"{remaining}%/{reset_text}" if reset_text else f"{remaining}%"
+        if label == "5h":
+            parts.append(quota)
+        else:
+            parts.append(f"{label} {quota}")
+    return ", ".join(parts)
+
 ```
 
 ### 3. `build_footer_line()` — pass through all params

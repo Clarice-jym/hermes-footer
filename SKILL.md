@@ -190,6 +190,18 @@ If `false`, run `/footer on` in any platform.
 - `references/restore-rich-fields.md` — Code changeset to restore the old multi-field footer system on the new simplified codebase.
 - `references/add-custom-footer-field.md` — Legacy: how custom fields were added in old system (kept for migration reference).
 
+# Maintenance
+
+This skill is version-controlled at [github.com/Clarice-jym/hermes-footer](https://github.com/Clarice-jym/hermes-footer).
+Update procedure:
+
+1. Edit the skill files locally (`~/.hermes/skills/autonomous-ai-agents/hermes-footer/`)
+2. Clone the repo if needed: `gh repo clone Clarice-jym/hermes-footer /tmp/hermes-footer`
+3. Copy updated files over: `cp -r ~/.hermes/skills/.../hermes-footer/* /tmp/hermes-footer/`
+4. Commit and push: `cd /tmp/hermes-footer && git add -A && git commit -m "..." && git push`
+
+**Important**: code changes (to `gateway/runtime_footer.py`, `gateway/run.py`, `config.yaml`) are **documented in the skill reference files** (`restore-rich-fields.md`, `diagnose-missing-footer.md`) but are **NOT committed separately** to any repo. The skill IS the authoritative fix documentation. The user's Hermes instance has the local code patches; a future `hermes update` may overwrite them, and the skill provides the recipe to re-apply.
+
 # Common pitfalls
 
 - **Do not only set `display.streaming`** — gateway streaming uses the top-level `streaming` block, not `display.streaming`.
