@@ -310,6 +310,8 @@ Note: `account_usage` and `elapsed_seconds` may not be in `agent_result` directl
 
 - **The try/except in `_respond_final`** catches ALL exceptions and sets `_footer_line = ""`. After code changes, always check `journalctl --user -u hermes-gateway` for debug logs (`runtime_footer build failed: ...`).
 - **`agent_result` keys vary by provider** — some providers don't return `account_usage` or `estimated_cost_usd`. Guard with `.get()`.
+- **Footer `usage` is fetched at footer-build time**, not returned in `agent_result`: `gateway/run.py` calls `agent.account_usage.fetch_account_usage(provider, base_url=..., api_key=...)`, then passes the snapshot to `build_footer_line()`. Prefer `agent_result` runtime values, but fall back to `config.yaml` `model.provider` / `model.base_url` if they are missing. Log `footer usage fetch: provider=... windows=... available=...` so missing usage is diagnosable instead of silent.
+- **`fetch_account_usage()` catches provider/API failures and returns `None`**; add an INFO log in `agent/account_usage.py` while debugging (`account usage unavailable for provider=...`) so 401/429/network failures explain why `usage` is skipped.
 - **`_load_gateway_config()`** may cache the config; changes to `config.yaml` require a gateway restart even if `runtime_footer.py` code is already updated.
 - **The old `field == "context"` no longer exists** — it was renamed to `context_pct`. Support both names for backward compat with existing configs.
 - **Token counts in `agent_result` are session cumulative**, not per-turn. For per-turn display, track previous values in the `GatewayRunner` instance.
