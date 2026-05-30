@@ -1,7 +1,7 @@
 ---
 name: hermes-footer
 description: "Configure Hermes runtime footer — detect version, fix missing footers, migrate config, or restore rich fields."
-version: 2.0.0
+version: 2.0.3
 author: Hermes Agent
 license: MIT
 metadata:
@@ -14,109 +14,78 @@ metadata:
 
 Use this skill when the user wants to **configure, verify, or repair** Hermes's runtime footer on a messaging platform.
 
-The footer system has **two possible versions** depending on whether `hermes update` pulled the simplified rewrite:
+The current Hermes runtime footer on this machine is the **rich-field system**.
 
-| Aspect | Old system (pre-May 2026) | New system (post-rewrite) |
-|--------|--------------------------|---------------------------|
-| Supported fields | `model`, `session`, `thinking`, `context`, `tokens`, `usage`, `time`, `cwd`, `cost` (custom) | `model`, `context_pct`, `cwd` only |
-| Custom separator | Read from `config.yaml` `separator` key | Hardcoded ` · ` (middle dot) |
-| Prefix/divider | `prefix` key in config (e.g. `────────`) | Not supported |
-| Custom fields | Code pattern in `runtime_footer.py` | Not supported without code extension |
-| Per-platform config | Full per-platform with separator/prefix/field list | Same config shape, but `separator`/`prefix` ignored, unknown fields silently dropped |
+## Current reality
 
-> **IMPORTANT**: Unknown field names in `fields` are **silently ignored** by the new `format_runtime_footer()`. If footers disappeared after an update, the config still looks correct but references fields that no longer exist in code.
+The live `gateway/runtime_footer.py` supports rich fields via `_RUNTIME_FOOTER_LABELS`, including:
 
-## First step: detect which version
+- `model`
+- `session`
+- `thinking`
+- `context`
+- `tokens`
+- `usage`
+- `time`
+- `cost`
+- `cwd`
+
+It also supports:
+
+- configurable `separator` from `config.yaml`
+- configurable `prefix` (for example `────────`)
+- per-platform field lists under `display.platforms.<platform>.runtime_footer`
+
+For this user's setup, the preferred separator is ` | `.
+
+The current preferred visible order on Feishu / Telegram / Discord is:
+
+- `model`
+- `cwd`
+- `thinking`
+- `context`
+- `tokens`
+- `cost`
+- `usage`
+
+That means the second visible footer slot should now be `cwd`, not `session`.
+
+Typical rendered examples:
+
+- Feishu: `Model: free | CWD: ~/.hermes | Thinking: medium | Context: 12.3k / 200.0k (6%) | Tokens: in 1.5k out 320 | Cost: $0.00`
+- Telegram / Discord:
+  - `────────`
+  - `Model: free | CWD: ~/.hermes | Thinking: medium | Context: 12.3k / 200.0k (6%) | Tokens: in 1.5k out 320 | Cost: $0.00`
+
+## First step: verify the live code before changing docs or config
 
 ```bash
 cd ~/.hermes/hermes-agent
-head -30 gateway/runtime_footer.py
+python3 - <<'PY'
+from pathlib import Path
+p = Path('gateway/runtime_footer.py')
+text = p.read_text(encoding='utf-8')
+print('_RUNTIME_FOOTER_LABELS' in text)
+print('"cwd": "CWD"' in text)
+print('"cost": "Cost"' in text)
+PY
 ```
 
-If you see `_DEFAULT_FIELDS = ("model", "context_pct", "cwd")` and a simple `format_runtime_footer()` with only 3 field branches → **new system**.
-If you see `_RUNTIME_FOOTER_LABELS` dict with many entries → **old system**.
+If that check is true for these rich-field markers, treat the system as rich-footer and edit config directly.
 
 ## Dispatch guide
 
-Once you know the version, decide the approach:
+| User request | Recommended action |
+|---|---|
+| "Footer disappeared" | Check config resolution, gateway logs, and whether the response path was successful |
+| "Add/remove/reorder a field" | Edit per-platform `runtime_footer.fields`, restart gateway, verify rendering |
+| "Change separator/prefix" | Edit `separator` / `prefix` in config, restart gateway, verify |
+| "Show cwd instead of session" | Verify each target platform uses `fields: [model, cwd, thinking, context, tokens, cost, usage]`, keep `cwd` in the second visible slot, and update the skill templates/examples so all three platforms stay aligned |
+| "Add custom field like cost" | Follow the code pattern in references if the live code lacks it; otherwise just add it to config |
 
-| User request | Old system | New system |
-|---|---|---|
-| "Footer disappeared after update" | Check config & restart | Config references now-gone fields → see **Migration** below |
-| "Add/remove a field" | Edit config → restart | Only `model`, `context_pct`, `cwd` available |
-| "Add custom field like `cost`" | Follow code pattern in references | Must **extend code** (see **Restoring rich footer** below) |
-| "Change separator/prefix" | Edit config → restart | Not supported in new system |
+## Historical note
 
----
-
-# Migration: New system — making footers visible again
-
-## Problem
-
-After `hermes update`, the user's config still has:
-```yaml
-runtime_footer:
-  enabled: true
-  fields: [model, session, thinking, context, tokens, usage]
-```
-
-But the new code only supports `model`, `context_pct`, `cwd`. Fields like `session`, `thinking`, `tokens`, `usage` are silently ignored. Result: only `model` prints, or if that's also misconfigured — empty footer.
-
-## Option A: Adapt to new system (minimal, no code changes)
-
-Update each platform's config to use only supported fields:
-
-```bash
-python3 - <<'PY'
-from pathlib import Path
-import yaml
-
-p = Path.home() / '.hermes' / 'config.yaml'
-cfg = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
-
-new_fields = ['model', 'context_pct']  # cwd optional
-
-for plat in ['feishu', 'telegram', 'discord']:
-    plat_cfg = cfg.get('display', {}).get('platforms', {}).get(plat, {})
-    if 'runtime_footer' in plat_cfg:
-        plat_cfg['runtime_footer']['fields'] = new_fields
-        # separator and prefix are now ignored by new code; keep or remove
-        plat_cfg['runtime_footer'].pop('separator', None)
-        plat_cfg['runtime_footer'].pop('prefix', None)
-
-p.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
-print("Updated:", p)
-PY
-hermes gateway restart
-```
-
-Verify: send a message on each platform. Footer should show something like `gpt-5.4 · 12%`.
-
-## Option B: Restore rich footer (extend code)
-
-This re-adds the old field support and custom separator/prefix to the new simplified codebase.
-
-### Files to modify
-
-| File | Change |
-|------|--------|
-| `gateway/runtime_footer.py` | Add `session`, `thinking`, `tokens`, `usage`, `time` field branches; restore configurable `_SEP` and prefix support |
-| `gateway/run.py` | Pass `session_id`, `input_tokens`, `output_tokens`, `elapsed_seconds`, `reasoning_config`, `account_usage` to `build_footer_line()` |
-
-The `agent_result` dict (available in `_respond_final` around `gateway/run.py` L7635) contains:
-- `model`, `session_id`, `last_prompt_tokens`, `context_length`
-- `input_tokens`, `output_tokens` (session cumulative)
-- `estimated_cost_usd`, `cost_status` (for custom `cost` field)
-- `reasoning_effort` (from session config)
-- `account_usage` (from usage tracking)
-
-### Reference file for restoration
-
-See `references/restore-rich-fields.md` for the full code changeset including:
-- Exact field rendering branches for `format_runtime_footer()`
-- How to wire separator and prefix from config into the new code
-- How to pass `cost_str` for the `cost` field
-- Pitfalls around the try/except that catches all footer errors
+Some older skill text referred to a short-lived simplified rewrite that only rendered `model`, `context_pct`, and `cwd`. That is **not** the active footer implementation in this environment. Keep those notes only as historical debugging context, not as the primary operating model.
 
 ---
 
@@ -177,8 +146,11 @@ If `false`, run `/footer on` in any platform.
 
 ## Key pitfalls
 
-- **New code silently ignores unknown fields** — the most common cause of "footer disappeared" after update. The config looks fine, but `session`, `thinking`, `tokens`, `usage` don't exist in new code.
-- **The try/except in `_respond_final`** catches ALL exceptions and sets `_footer_line = ""`. Any error in footer building = no footer, no error message to user.
+- **Field list mismatches still matter** — if the footer shows the wrong value (for example `Session` when the user wants `CWD`), check `display.platforms.<platform>.runtime_footer.fields` first.
+- **For this user's setup, Feishu / Telegram / Discord should stay in sync** — when changing one platform's runtime footer field order, update the other two and refresh the skill templates in the same pass.
+- **The try/except in `_respond_final`** catches ALL exceptions and sets `_footer_line = ""`. Any error in footer building = no footer, no error message to user. Always check gateway logs for `runtime_footer build failed` before assuming config is wrong.
+- **Do not port old footer snippets without re-checking variable scope** — after Hermes updates, `gateway/run.py` structure may change. In particular, the final-response footer block may not have access to a bare `agent` object; pass needed values through `agent_result` instead. See `references/restore-rich-fields.md` pitfalls.
+- **Streaming replies are a separate path** — if `agent_result.already_sent` is true, attach footer by editing `stream_message_id` in place when possible, then fall back to a trailing footer message.
 - **Per-platform `enabled: true` overrides** global `enabled: false` — the `/footer off` command changes the global, not per-platform.
 - **Gateway restart is mandatory** after any config or code change.
 
@@ -187,8 +159,8 @@ If `false`, run `/footer on` in any platform.
 # References
 
 - `references/diagnose-missing-footer.md` — Full diagnostic flow for missing footers (version-agnostic).
-- `references/restore-rich-fields.md` — Code changeset to restore the old multi-field footer system on the new simplified codebase.
-- `references/add-custom-footer-field.md` — Legacy: how custom fields were added in old system (kept for migration reference).
+- `references/restore-rich-fields.md` — Historical recovery notes for older stripped-down footer revisions.
+- `references/add-custom-footer-field.md` — Rich-footer codepath notes for adding or tracing fields like `cost`.
 
 # Maintenance
 
@@ -207,4 +179,4 @@ Update procedure:
 - **Do not only set `display.streaming`** — gateway streaming uses the top-level `streaming` block, not `display.streaming`.
 - **Always restart the gateway** after config or code changes: `hermes gateway restart`.
 - **The `/footer` slash command** toggles `display.runtime_footer.enabled` globally; per-platform overrides still apply individually.
-- **New code unknown fields are silent** — if footers vanished, check the field names against what `format_runtime_footer()` actually renders.
+- **Per-platform field lists win the user-visible output** — if the footer text is structurally wrong, inspect the exact `fields` order on that platform before touching code.

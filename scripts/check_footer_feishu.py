@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Check Hermes runtime-footer config & source support — version-aware.
-
-Detects whether the old (rich) or new (simplified) footer system is installed
-and runs appropriate checks.
+"""Check Hermes Feishu runtime-footer config against the current rich-footer setup.
 
 Run from anywhere:
     python ~/.hermes/skills/autonomous-ai-agents/hermes-footer/scripts/check_footer_feishu.py
@@ -41,15 +38,22 @@ fields = footer.get("fields") or []
 
 check("config exists", config_path.exists(), str(config_path))
 
-# Detect file version
+# Detect rich-footer support
 runtime_footer_py = repo / "gateway" / "runtime_footer.py"
-is_new_system = False
 if runtime_footer_py.exists():
     src = runtime_footer_py.read_text(encoding="utf-8", errors="ignore")
-    is_new_system = '_DEFAULT_FIELDS = ("model", "context_pct", "cwd")' in src
     check("runtime_footer.py exists", True, str(runtime_footer_py))
-    version = "NEW (simplified)" if is_new_system else "OLD (rich)"
-    print(f"  → Detected: {version} footer system")
+    rich_markers = [
+        '"cwd": "CWD"',
+        '"cost": "Cost"',
+        '"usage": "Usage"',
+        '"thinking": "Thinking"',
+    ]
+    check(
+        "rich footer markers present",
+        all(marker in src for marker in rich_markers),
+        "expects CWD/Cost/Usage/Thinking labels",
+    )
 else:
     check("runtime_footer.py exists", False, str(runtime_footer_py))
     sys.exit(1)
@@ -59,24 +63,11 @@ check("top-level streaming.enabled", streaming.get("enabled") is True)
 check("Feishu platform streaming", feishu.get("streaming") is True)
 check("Feishu runtime_footer.enabled", footer.get("enabled") is True)
 check("footer excludes Agent field", "agent" not in fields, f"fields={fields}")
-
-if is_new_system:
-    # New system: only model, context_pct, cwd are supported
-    check("footer includes model", "model" in fields, f"fields={fields}")
-    check("footer includes context_pct or context",
-          "context_pct" in fields or "context" in fields, f"fields={fields}")
-    # Check for unsupported fields (will be silently dropped)
-    unsupported = [f for f in fields if f not in ("model", "context_pct", "context", "cwd")]
-    for f in unsupported:
-        print(f"  ⚠ WARNING: '{f}' not supported by new code — silently ignored")
-else:
-    # Old system: rich field support
-    for field in ["model", "session", "thinking", "context", "tokens"]:
-        check(f"footer includes {field}", field in fields, f"fields={fields}")
-    check("runtime_footer split function", "def split_runtime_footer" in src)
-    check("Feishu interactive card builder",
-          "_build_interactive_card_payload" in src or
-          (repo / "gateway" / "platforms" / "feishu.py").read_text(encoding="utf-8", errors="ignore").__contains__("split_runtime_footer"))
+check("Feishu separator is preferred pipe", footer.get("separator") == " | ", f"separator={footer.get('separator')!r}")
+expected_fields = ["model", "cwd", "thinking", "context", "tokens", "cost", "usage"]
+check("Feishu preferred field order", fields == expected_fields, f"fields={fields}")
+check("Feishu keeps no divider prefix", not footer.get("prefix"), f"prefix={footer.get('prefix')!r}")
+check("runtime_footer split function", "def split_runtime_footer" in src)
 
 # Gateway embedding check
 run_py = repo / "gateway" / "run.py"

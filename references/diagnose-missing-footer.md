@@ -2,29 +2,33 @@
 
 Use this reference when the user reports that the Hermes runtime footer has disappeared on a platform (Telegram, Feishu, Discord, etc.) despite being previously configured.
 
+> Current reality for this environment: the active footer implementation is the **rich-field** system with `_RUNTIME_FOOTER_LABELS`, configurable `separator`/`prefix`, and support for `session`, `thinking`, `context`, `tokens`, `usage`, `time`, `cost`, and `cwd`.
+
 ## Quick triage
 
 | Symptom | Most likely cause |
 |---------|-------------------|
-| Footer missing on **all** platforms | Agent 429 / API rate-limit errors; `/footer off` toggled global; **OR post-update field mismatch (most common)** |
+| Footer missing on **all** platforms | Agent 429 / API rate-limit errors; `/footer off` toggled global; gateway not restarted after config change |
 | Footer missing on **one** platform | Per-platform config issue; streaming path failure; platform adapter edit failure |
 | Discord footer sent as **separate message** in streaming | Expected behavior — `_try_embed_stream_footer_in_place` does not support Discord (only Feishu/Telegram) |
 | Footer missing **after config/code change** | Config caching; gateway restart needed; config YAML syntax error |
-| Footer missing **after `hermes update`** | **Most likely: code rewrite removed old field names** — config references `session`, `thinking`, `tokens`, `usage` but new code only supports `model`, `context_pct`, `cwd` |
+| Footer value is wrong (for example `Session` vs `CWD`) | Wrong field list in per-platform `runtime_footer.fields` |
 | Footer was working, now gone after API 429 | The agent returned an error response — footer only added for **successful** responses |
 
-## First: detect which version of runtime_footer.py
+## First: verify the live footer code
 
 ```bash
 cd ~/.hermes/hermes-agent
-head -35 gateway/runtime_footer.py
+python3 - <<'PY'
+from pathlib import Path
+text = Path('gateway/runtime_footer.py').read_text(encoding='utf-8')
+print('_RUNTIME_FOOTER_LABELS' in text)
+print('"cwd": "CWD"' in text)
+print('"cost": "Cost"' in text)
+PY
 ```
 
-**Old system**: has `_RUNTIME_FOOTER_LABELS` dict with entries like `"model"`, `"session"`, `"thinking"`, etc., and `format_runtime_footer()` with many field branches.
-
-**New system (post-May 2026 rewrite)**: has `_DEFAULT_FIELDS = ("model", "context_pct", "cwd")`, simple `format_runtime_footer()` with only 3 `elif` branches.
-
-This determines the diagnostic path below.
+If those markers are present, treat the system as rich-footer and debug config/runtime behavior directly.
 
 ## Diagnostic checklist
 
@@ -47,7 +51,13 @@ for platform in ["telegram", "feishu", "discord"]:
 
 Even if `display.runtime_footer.enabled: false`, a per-platform `enabled: true` should override.
 
-**Critical check (new system)**: If `fields` contains `session`, `thinking`, `tokens`, `usage`, `time` — these are **unknown to new code** and silently dropped. Only `model` and `context_pct` (also accepts `context`) and `cwd` will render. This is the #1 cause of "footer disappeared after update".
+**Critical check**: Verify that each platform's `fields` list matches the behavior the user wants. For this user's current standard on Feishu / Telegram / Discord, the expected order is:
+
+```yaml
+fields: [model, cwd, thinking, context, tokens, cost, usage]
+```
+
+So the second slot should contain `cwd` rather than `session`.
 
 ### 2. Check gateway logs for footer activity
 
@@ -150,10 +160,10 @@ Check what arguments are actually being passed. The most common new-system failu
 | `gateway/run.py` `_respond_final()` | Footer assembly and appending (~L7635+) |
 | `~/.hermes/config.yaml` | Footer configuration |
 
-## Common pitfalls (new system)
+## Common pitfalls
 
-- **Unknown fields are silently dropped** — `session`, `thinking`, `tokens`, `usage`, `time` in config produce NO error and NO footer content for those fields. Only `model`, `context_pct`/`context`, `cwd` work.
 - **The try/except in `_respond_final`** catches ALL exceptions and sets `_footer_line = ""`. Any error → no footer, no user-facing error.
-- **`_bfl()` call in new code takes only 4 payload params** — if you extend it, check both `runtime_footer.py` AND `run.py` call site.
-- **The `separator` key in config is ignored by new system** — hardcoded to ` · ` (middle dot).
-- **The `prefix` key in config is ignored by new system** — no divider line.
+- **Gateway restart is required** after config or code changes, because config may be cached.
+- **Per-platform field order controls the visible footer** — if a user wants `CWD` where `Session` currently appears, replace that field in the platform's `runtime_footer.fields` list, and keep all target platforms aligned.
+- **Discord streaming often uses a separate footer message** — that's expected when in-place edit embedding is not supported there.
+- **The `/footer` slash command** toggles `display.runtime_footer.enabled` globally; per-platform overrides can still differ.

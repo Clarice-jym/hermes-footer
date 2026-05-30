@@ -1,7 +1,7 @@
 # Adding a custom footer field — session trace (2026-05-11)
 
-> **⚠️ LEGACY — Old footer system only.** This reference documents the old `runtime_footer.py` (pre-May 2026 rewrite) that had `_RUNTIME_FOOTER_LABELS` and a rich `format_runtime_footer()`. The current simplified code does NOT have `_RUNTIME_FOOTER_LABELS` or most of these entry points.  
-> For restoring the old behavior on the new codebase, see `references/restore-rich-fields.md`.
+> **Historical note:** this reference was originally written while tracing how a custom `cost` field was added. The current live environment already uses the rich `_RUNTIME_FOOTER_LABELS` footer implementation, so the code paths below are directly relevant when that implementation is still present.
+> If you inspect an older checkout that really only has the 3-field footer, see `references/restore-rich-fields.md` for the historical restoration notes.
 
 This file captures the exact code paths and line numbers discovered while adding a `cost` field to the runtime footer for `Cost: Today $0.96`.
 
@@ -76,8 +76,8 @@ Add `cost` to the `fields` list for each platform:
 ```yaml
 fields:
   - model
+  - cwd
   - cost
-  - session
   - ...
 ```
 

@@ -1,6 +1,6 @@
-# Restore Rich Footer Fields (post-May 2026 rewrite)
+# Restore Rich Footer Fields (historical recovery notes)
 
-This reference documents how to restore the old multi-field footer system after the Hermes rewrite that simplified `runtime_footer.py` to only 3 fields (`model`, `context_pct`, `cwd`).
+This reference documents a historical recovery path for checkouts where `runtime_footer.py` had been simplified to only 3 fields (`model`, `context_pct`, `cwd`). In the current live environment, rich footer fields are already present; use this file only when you truly inspect an older stripped-down revision.
 
 ## Root cause
 
@@ -19,6 +19,14 @@ New: model, context_tokens, context_length, cwd
 ```
 
 ## Config was NOT the problem
+
+For the current live setup on this machine, the preferred post-restore order is:
+
+```yaml
+fields: [model, cwd, thinking, context, tokens, cost, usage]
+```
+
+The older `session`-based example below is preserved only to explain why a past stripped-down footer revision silently dropped rich fields.
 
 If the user's config has:
 ```yaml

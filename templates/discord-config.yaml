@@ -1,11 +1,13 @@
-# Discord runtime_footer config
+# Discord runtime_footer config (current rich-field system)
 #
-# VERSION NOTE (May 2026): The new simplified footer code only supports
-# `model`, `context_pct`, and `cwd`. Fields like session/thinking/tokens/usage
-# are silently ignored. Separator and prefix are also ignored.
+# The live runtime footer supports rich fields such as:
+# model, cwd, thinking, context, tokens, cost, usage, time, session
 #
-# Use this template with the NEW system by stripping unsupported fields.
-# For the OLD rich system (pre-rewrite), see the commented block below.
+# Current preferred Discord order for this user:
+# model | cwd | thinking | context | tokens | cost | usage
+#
+# This user prefers separator: ' | '
+# Discord also keeps the divider prefix.
 
 display:
   platforms:
@@ -14,31 +16,13 @@ display:
       streaming: true
       runtime_footer:
         enabled: true
-        # separator: ' | '          # ignored by new code
-        # prefix: '────────'        # ignored by new code
+        separator: ' | '
+        prefix: '────────'
         fields:
           - model
-          - context_pct
-          # - session              # unsupported in new code
-          # - thinking             # unsupported in new code
-          # - tokens               # unsupported in new code
-          # - usage                # unsupported in new code
-          # - cwd                  # supported but optional
-
-# ---- OLD SYSTEM (pre-May 2026 rewrite) ----
-# display:
-#   platforms:
-#     discord:
-#       show_reasoning: true
-#       streaming: true
-#       runtime_footer:
-#         enabled: true
-#         separator: ' | '
-#         prefix: '────────'
-#         fields:
-#           - model
-#           - session
-#           - thinking
-#           - context
-#           - tokens
-#           - usage
+          - cwd
+          - thinking
+          - context
+          - tokens
+          - cost
+          - usage

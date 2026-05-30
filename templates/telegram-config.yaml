@@ -1,11 +1,13 @@
-# Telegram runtime_footer config
+# Telegram runtime_footer config (current rich-field system)
 #
-# VERSION NOTE (May 2026): The new simplified footer code only supports
-# `model`, `context_pct`, and `cwd`. Fields like session/thinking/tokens/usage
-# are silently ignored. Separator and prefix are also ignored.
-# 
-# Use this template with the NEW system by stripping unsupported fields.
-# For the OLD rich system (pre-rewrite), see the commented block below.
+# The live runtime footer supports rich fields such as:
+# model, cwd, thinking, context, tokens, cost, usage, time, session
+#
+# Current preferred Telegram order for this user:
+# model | cwd | thinking | context | tokens | cost | usage
+#
+# This user prefers separator: ' | '
+# Telegram also keeps the divider prefix.
 
 display:
   platforms:
@@ -13,31 +15,13 @@ display:
       streaming: true
       runtime_footer:
         enabled: true
-        # separator: ' | '          # ignored by new code
-        # prefix: '────────'        # ignored by new code
+        separator: ' | '
+        prefix: '────────'
         fields:
           - model
-          - context_pct
-          # - session              # unsupported in new code
-          # - thinking             # unsupported in new code
-          # - tokens               # unsupported in new code
-          # - time                 # unsupported in new code
-          # - cwd                  # supported but optional
-
-# ---- OLD SYSTEM (pre-May 2026 rewrite) ----
-# display:
-#   platforms:
-#     telegram:
-#       streaming: true
-#       runtime_footer:
-#         enabled: true
-#         separator: ' | '
-#         prefix: '────────'
-#         fields:
-#           - model
-#           - session
-#           - thinking
-#           - context
-#           - tokens
-#           - time
-#           - cwd
+          - cwd
+          - thinking
+          - context
+          - tokens
+          - cost
+          - usage
